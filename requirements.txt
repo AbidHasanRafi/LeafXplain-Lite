@@ -3,3 +3,5 @@ torch
 torchvision
 numpy
 matplotlib
+google-generativeai
+streamlit-webrtc

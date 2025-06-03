@@ -7,96 +7,42 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import os
 import warnings
-import google.generativeai as genai
-import datetime
-import json
-from io import BytesIO
-import base64
-import pandas as pd
-from geopy.geocoders import Nominatim
 import time
+import pandas as pd
+import seaborn as sns
+from io import BytesIO
+import google.generativeai as genai
+import tempfile
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
 
 warnings.filterwarnings('ignore')
 
-# Configuration
-CONFIG = {
-    "max_history": 10,  # Number of past diagnoses to remember
-    "default_language": "English",
-    "languages": {
-        "English": {
-            "app_title": "🌿 Plant Disease Diagnosis",
-            "upload_model": "Upload Model",
-            "upload_image": "Upload Plant Image",
-            "diagnosis_results": "Diagnosis Results",
-            "top_predictions": "Top Predictions",
-            "model_attention": "Model Attention",
-            "original_image": "Original Image",
-            "confidence": "Confidence",
-            "predicted_disease": "Predicted Disease",
-            "understanding_results": "Understanding the Results",
-            "most_important": "Most important",
-            "important": "Important",
-            "less_important": "Less important",
-            "remediation_advice": "Remediation Advice",
-            "detailed_info": "Detailed Information",
-            "history": "Diagnosis History",
-            "export_report": "Export Report",
-            "location": "Location (Optional)",
-            "get_location": "Get Current Location",
-            "enter_location": "Or enter location manually:",
-            "no_model": "Please upload a trained model (.pth file) to begin diagnosis",
-            "model_loaded": "Model loaded successfully!",
-            "no_image": "Please upload an image for diagnosis",
-            "ask_gemini": "Ask Gemini for more information",
-            "gemini_question": "What would you like to know about this disease?",
-            "gemini_response": "Gemini Response",
-            "export_pdf": "Export as PDF",
-            "export_csv": "Export as CSV",
-            "capture_date": "Capture Date",
-            "capture_date_placeholder": "Select date when photo was taken"
-        },
-        "Spanish": {
-            "app_title": "🌿 Diagnóstico de Enfermedades en Plantas",
-            "upload_model": "Subir Modelo",
-            "upload_image": "Subir Imagen de Planta",
-            "diagnosis_results": "Resultados del Diagnóstico",
-            "top_predictions": "Predicciones Principales",
-            "model_attention": "Atención del Modelo",
-            "original_image": "Imagen Original",
-            "confidence": "Confianza",
-            "predicted_disease": "Enfermedad Predicha",
-            "understanding_results": "Entendiendo los Resultados",
-            "most_important": "Más importante",
-            "important": "Importante",
-            "less_important": "Menos importante",
-            "remediation_advice": "Consejos de Remediación",
-            "detailed_info": "Información Detallada",
-            "history": "Historial de Diagnósticos",
-            "export_report": "Exportar Reporte",
-            "location": "Ubicación (Opcional)",
-            "get_location": "Obtener Ubicación Actual",
-            "enter_location": "O ingresar ubicación manualmente:",
-            "no_model": "Por favor suba un modelo entrenado (.pth) para comenzar el diagnóstico",
-            "model_loaded": "¡Modelo cargado exitosamente!",
-            "no_image": "Por favor suba una imagen para diagnóstico",
-            "ask_gemini": "Preguntar a Gemini por más información",
-            "gemini_question": "¿Qué le gustaría saber sobre esta enfermedad?",
-            "gemini_response": "Respuesta de Gemini",
-            "export_pdf": "Exportar como PDF",
-            "export_csv": "Exportar como CSV",
-            "capture_date": "Fecha de Captura",
-            "capture_date_placeholder": "Seleccione fecha cuando se tomó la foto"
-        }
-    }
+# Configure Gemini API
+GEMINI_API_KEY = "Enter_Your_Gemini_API_Key_Here"  # Replace with your actual API key
+genai.configure(api_key=GEMINI_API_KEY)
+
+# Initialize Gemini model
+generation_config = {
+    "temperature": 0.5,
+    "top_p": 1,
+    "top_k": 32,
+    "max_output_tokens": 4096,
 }
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+safety_settings = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+]
 
-# Initialize Gemini API (replace with your actual API key)
-GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "your-api-key-here")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel('gemini-pro')
+gemini_model = genai.GenerativeModel(
+    model_name="gemini-2.0-flash",
+    generation_config=generation_config,
+    safety_settings=safety_settings
+)
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # model architecture
 class PlantDiseaseCNN(nn.Module):
@@ -133,7 +79,7 @@ class PlantDiseaseCNN(nn.Module):
         attended = features * attention
         return self.classifier(attended)
 
-# class names
+# class names with detailed descriptions
 CLASS_NAMES = [
     'Apple_Apple Scab', 'Apple_Black Rot', 'Apple_Cedar Apple Rust',
     'Bell Pepper_Bacterial Spot', 'Cherry_Powdery Mildew',
@@ -146,88 +92,27 @@ CLASS_NAMES = [
     'Tomato_Septoria Leaf Spot', 'Tomato_Yellow Leaf Curl Virus'
 ]
 
-# Remediation advice for each disease
-REMEDIATION_ADVICE = {
-    'Apple_Apple Scab': {
-        'short': "Apply fungicides in early spring and remove fallen leaves.",
-        'long': "Apple scab can be controlled through a combination of cultural practices and fungicide applications. Remove and destroy fallen leaves in autumn to reduce overwintering spores. Apply fungicides starting at green tip stage and continue through petal fall. Resistant varieties are available."
-    },
-    'Apple_Black Rot': {
-        'short': "Prune infected branches and apply fungicides during bloom.",
-        'long': "For black rot management, prune out all dead wood and cankers during dormancy. Remove mummified fruit from trees and ground. Apply fungicides during bloom period. Ensure proper tree spacing for good air circulation."
-    },
-    'Apple_Cedar Apple Rust': {
-        'short': "Remove nearby junipers or apply fungicides in early spring.",
-        'long': "Cedar apple rust requires both apple and juniper hosts. If possible, remove junipers within a 2-mile radius. If not, apply fungicides to apples starting at pink bud stage and continue through 2nd cover spray. Resistant varieties are available."
-    },
-    'Bell Pepper_Bacterial Spot': {
-        'short': "Use disease-free seed, rotate crops, and apply copper sprays.",
-        'long': "Bacterial spot is difficult to control once established. Use pathogen-free seed and transplants. Practice 2-3 year crop rotations. Avoid overhead irrigation. Copper sprays may help but are often ineffective in wet weather. Some resistant varieties exist."
-    },
-    'Cherry_Powdery Mildew': {
-        'short': "Apply sulfur or potassium bicarbonate fungicides.",
-        'long': "For powdery mildew, ensure good air circulation through proper pruning. Apply sulfur or potassium bicarbonate fungicides at first sign of disease. Avoid excessive nitrogen fertilization which promotes susceptible growth."
-    },
-    'Corn (Maize)_Cercospora Leaf Spot': {
-        'short': "Rotate crops and use resistant hybrids.",
-        'long': "Manage Cercospora leaf spot through crop rotation (at least 1 year between corn crops), tillage to bury residue, and use of resistant hybrids. Fungicides may be economical in seed production fields."
-    },
-    'Corn (Maize)_Common Rust': {
-        'short': "Plant early and use resistant hybrids.",
-        'long': "Common rust is typically not economically damaging enough to warrant fungicide application. Plant early to avoid peak disease periods. Many hybrids have good resistance. Remove volunteer corn plants that may harbor the disease."
-    },
-    'Corn (Maize)_Northern Leaf Blight': {
-        'short': "Rotate crops, till residue, and use resistant hybrids.",
-        'long': "Northern leaf blight management includes crop rotation (at least 1 year between corn crops), tillage to bury residue, and use of resistant hybrids. Fungicides may be justified when disease appears early and weather favors spread."
-    },
-    'Grape_Black Rot': {
-        'short': "Apply fungicides from pre-bloom through 3-4 weeks after bloom.",
-        'long': "Black rot control requires fungicide applications from pre-bloom through 3-4 weeks after bloom. Remove all mummies from vines and ground during pruning. Improve air circulation through proper pruning and canopy management."
-    },
-    'Grape_Esca (Black Measles)': {
-        'short': "No cure; remove infected vines and protect pruning wounds.",
-        'long': "Esca is a complex disease with no effective cure once established. Remove severely infected vines. Protect pruning wounds with fungicides to prevent infection. Avoid stress to vines through proper irrigation and nutrition."
-    },
-    'Grape_Leaf Blight': {
-        'short': "Apply fungicides and remove infected leaves.",
-        'long': "For grape leaf blight, apply fungicides at first sign of disease. Remove severely infected leaves if practical. Ensure good air circulation through proper vine spacing and canopy management. Avoid overhead irrigation."
-    },
-    'Peach_Bacterial Spot': {
-        'short': "Apply copper sprays during dormancy and at petal fall.",
-        'long': "Bacterial spot management includes copper sprays during dormancy and at petal fall. Avoid overhead irrigation. Select less susceptible varieties when possible. Maintain tree vigor through proper nutrition and irrigation but avoid excessive nitrogen."
-    },
-    'Potato_Early Blight': {
-        'short': "Apply fungicides, rotate crops, and maintain plant health.",
-        'long': "Early blight is managed through fungicide applications, 3-year crop rotations, and maintaining plant vigor through proper nutrition and irrigation. Remove volunteer potato plants and cull piles. Avoid overhead irrigation when possible."
-    },
-    'Potato_Late Blight': {
-        'short': "Destroy infected plants and apply fungicides preventatively.",
-        'long': "Late blight requires aggressive management. Destroy infected plants immediately. Apply fungicides preventatively when weather favors disease. Use certified disease-free seed potatoes. Allow tubers to mature before harvest to prevent infection."
-    },
-    'Strawberry_Leaf Scorch': {
-        'short': "Apply fungicides and remove infected leaves after harvest.",
-        'long': "For leaf scorch, apply fungicides starting at first bloom. Remove infected leaves after harvest. Ensure good air circulation through proper plant spacing. Irrigate in morning to allow leaves to dry quickly."
-    },
-    'Tomato_Bacterial Spot': {
-        'short': "Use disease-free seed, rotate crops, and apply copper sprays.",
-        'long': "Bacterial spot control requires disease-free seed and transplants. Practice 2-3 year crop rotations. Copper sprays may help but are often ineffective in wet weather. Avoid working with plants when wet. Some resistant varieties exist."
-    },
-    'Tomato_Early Blight': {
-        'short': "Apply fungicides, stake plants, and remove infected leaves.",
-        'long': "Early blight management includes regular fungicide applications, staking plants to improve air circulation, and removing infected lower leaves. Mulch to prevent soil splash. Rotate crops (3 years between tomato crops)."
-    },
-    'Tomato_Late Blight': {
-        'short': "Destroy infected plants and apply fungicides preventatively.",
-        'long': "Late blight requires immediate action. Destroy infected plants. Apply fungicides preventatively when weather favors disease. Avoid overhead irrigation. Remove volunteer tomato and potato plants. Use resistant varieties when available."
-    },
-    'Tomato_Septoria Leaf Spot': {
-        'short': "Apply fungicides, remove infected leaves, and rotate crops.",
-        'long': "Septoria leaf spot is managed through fungicide applications, removing infected lower leaves, and 3-year crop rotations. Mulch to prevent soil splash. Avoid overhead irrigation. Space plants for good air circulation."
-    },
-    'Tomato_Yellow Leaf Curl Virus': {
-        'short': "Control whiteflies and remove infected plants.",
-        'long': "Yellow leaf curl virus is spread by whiteflies. Use insecticides to control whitefly populations. Remove infected plants immediately. Use virus-free transplants. Reflective mulches may repel whiteflies. Resistant varieties are available."
-    }
+DISEASE_DESCRIPTIONS = {
+    'Apple_Apple Scab': 'Fungal disease causing dark, scaly lesions on leaves and fruit.',
+    'Apple_Black Rot': 'Fungal disease causing brown rot with concentric rings on fruit.',
+    'Apple_Cedar Apple Rust': 'Fungal disease with bright orange spots on leaves.',
+    'Bell Pepper_Bacterial Spot': 'Bacterial disease causing small, water-soaked leaf spots.',
+    'Cherry_Powdery Mildew': 'Fungal disease with white powdery growth on leaves.',
+    'Corn (Maize)_Cercospora Leaf Spot': 'Fungal disease causing small, circular leaf spots with tan centers.',
+    'Corn (Maize)_Common Rust': 'Fungal disease with small, reddish-brown pustules on leaves.',
+    'Corn (Maize)_Northern Leaf Blight': 'Fungal disease causing long, elliptical gray-green lesions.',
+    'Grape_Black Rot': 'Fungal disease causing brown leaf spots with black fruiting bodies.',
+    'Grape_Esca (Black Measles)': 'Complex disease causing tiger-stripe patterns on leaves.',
+    'Grape_Leaf Blight': 'Bacterial disease causing angular leaf spots with yellow halos.',
+    'Peach_Bacterial Spot': 'Bacterial disease causing small, purple-black leaf spots.',
+    'Potato_Early Blight': 'Fungal disease causing concentric rings on leaves resembling targets.',
+    'Potato_Late Blight': 'Famous for Irish Potato Famine, causes water-soaked leaf lesions.',
+    'Strawberry_Leaf Scorch': 'Fungal disease causing purple spots that turn brown and scorched.',
+    'Tomato_Bacterial Spot': 'Bacterial disease causing small, dark leaf spots with yellow halos.',
+    'Tomato_Early Blight': 'Fungal disease causing target-like lesions on older leaves.',
+    'Tomato_Late Blight': 'Destructive disease causing large, water-soaked leaf lesions.',
+    'Tomato_Septoria Leaf Spot': 'Fungal disease causing small, circular spots with gray centers.',
+    'Tomato_Yellow Leaf Curl Virus': 'Viral disease causing yellowing and upward curling of leaves.'
 }
 
 # load model function
@@ -307,20 +192,73 @@ def create_combined_figure(original_image, heatmap, alpha=0.5):
     
     # display original image
     ax1.imshow(img_array)
-    ax1.set_title(t("original_image"), fontsize=12, pad=10, fontweight='bold', 
+    ax1.set_title("Original Image", fontsize=12, pad=10, fontweight='bold', 
                  color='white' if st.get_option("theme.base") == "dark" else 'black')
     ax1.axis('off')
     
     # display original image with heatmap overlay
     ax2.imshow(img_array)
     heatmap_display = ax2.imshow(heatmap_normalized, cmap='inferno', alpha=alpha)
-    ax2.set_title(t("model_attention"), fontsize=12, pad=10, fontweight='bold',
+    ax2.set_title("Model Attention", fontsize=12, pad=10, fontweight='bold',
                  color='white' if st.get_option("theme.base") == "dark" else 'black')
     ax2.axis('off')
     
     # add colorbar with smaller size
     cbar = fig.colorbar(heatmap_display, ax=ax2, fraction=0.046, pad=0.01)
     cbar.ax.tick_params(labelsize=8, colors='white' if st.get_option("theme.base") == "dark" else 'black')
+    
+    plt.tight_layout()
+    return fig
+
+def create_detailed_analysis_figure(image, heatmap, predictions):
+    """Create a comprehensive analysis figure with multiple visualizations"""
+    plt.style.use('dark_background' if st.get_option("theme.base") == "dark" else 'default')
+    fig = plt.figure(figsize=(16, 12))
+    
+    # Grid layout
+    gs = fig.add_gridspec(3, 3)
+    
+    # Original Image
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax1.imshow(np.array(image))
+    ax1.set_title("Original Image", fontsize=10)
+    ax1.axis('off')
+    
+    # Heatmap
+    ax2 = fig.add_subplot(gs[0, 1])
+    ax2.imshow(np.array(image))
+    heatmap_resized = np.array(Image.fromarray(heatmap).resize(image.size, Image.BILINEAR))
+    heatmap_normalized = (heatmap_resized - heatmap_resized.min()) / (heatmap_resized.max() - heatmap_resized.min())
+    ax2.imshow(heatmap_normalized, cmap='inferno', alpha=0.5)
+    ax2.set_title("Attention Heatmap", fontsize=10)
+    ax2.axis('off')
+    
+    # Class Activation Map
+    ax3 = fig.add_subplot(gs[0, 2])
+    ax3.imshow(heatmap_normalized, cmap='viridis')
+    ax3.set_title("Class Activation Map", fontsize=10)
+    ax3.axis('off')
+    
+    # Prediction Distribution
+    ax4 = fig.add_subplot(gs[1, :])
+    probs = predictions.squeeze().cpu().numpy()
+    top_indices = np.argsort(probs)[-5:][::-1]
+    top_classes = [CLASS_NAMES[i] for i in top_indices]
+    top_probs = [probs[i] for i in top_indices]
+    
+    colors = plt.cm.viridis(np.linspace(0.2, 0.8, len(top_indices)))
+    ax4.barh(top_classes, top_probs, color=colors)
+    ax4.set_xlabel("Probability", fontsize=10)
+    ax4.set_title("Top Predictions", fontsize=12)
+    ax4.set_xlim(0, 1)
+    
+    # Confidence Distribution
+    ax5 = fig.add_subplot(gs[2, :])
+    sns.kdeplot(probs, ax=ax5, fill=True, color='skyblue')
+    ax5.set_xlabel("Probability", fontsize=10)
+    ax5.set_ylabel("Density", fontsize=10)
+    ax5.set_title("Confidence Distribution", fontsize=12)
+    ax5.set_xlim(0, 1)
     
     plt.tight_layout()
     return fig
@@ -333,88 +271,129 @@ def preprocess_image(image):
     ])
     return transform(image).unsqueeze(0).to(device)
 
-def t(key):
-    """Translation function to get text in current language"""
-    return CONFIG["languages"][st.session_state.get("language", CONFIG["default_language"])][key]
-
-def get_gemini_response(prompt, disease):
-    """Get response from Gemini API"""
+def get_gemini_advice(disease_name, confidence):
+    """Get advisory information from Gemini about the detected disease"""
     try:
-        full_prompt = f"You are an agricultural expert. Provide detailed but concise information about {disease} in response to: {prompt}. Include prevention and treatment methods if relevant."
-        response = gemini_model.generate_content(full_prompt)
+        prompt = f"""
+        You are an expert plant pathologist. Provide detailed information about {disease_name} including:
+        1. A brief description of the disease (50 words)
+        2. Common symptoms (bullet points)
+        3. Recommended treatment options (bullet points)
+        4. Prevention strategies (bullet points)
+        5. Any safety precautions for handling infected plants
+        
+        The model detected this with {confidence:.2f}% confidence. 
+        If confidence is below 70%, mention that verification by an expert might be needed.
+        
+        Format your response in clear markdown sections.
+        """
+        
+        response = gemini_model.generate_content(prompt)
         return response.text
     except Exception as e:
-        return f"Could not get response from Gemini: {str(e)}"
+        st.error(f"Error getting Gemini advice: {str(e)}")
+        return "Could not retrieve advisory information at this time."
 
-def get_location_name(lat, lon):
-    """Convert coordinates to location name"""
-    try:
-        geolocator = Nominatim(user_agent="plant_disease_app")
-        location = geolocator.reverse(f"{lat}, {lon}")
-        return location.address if location else "Unknown location"
-    except:
-        return "Unknown location"
+class VideoProcessor(VideoTransformerBase):
+    def __init__(self, model):
+        self.model = model
+        self.target_layer = model.features[-2]
+        self.grad_cam = GradCAM(model, self.target_layer)
+        self.transform = transforms.Compose([
+            transforms.Resize((128, 128)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+        ])
+        self.last_update_time = time.time()
+        self.update_interval = 2  # seconds between updates
+        self.last_prediction = None
+        self.last_heatmap = None
+        
+    def transform(self, frame):
+        current_time = time.time()
+        
+        # Only process if enough time has passed since last update
+        if current_time - self.last_update_time < self.update_interval:
+            return frame
+        
+        self.last_update_time = current_time
+        
+        try:
+            # Convert frame to PIL Image
+            img = Image.fromarray(frame.to_ndarray(format="rgb24"))
+            
+            # Preprocess for model
+            input_tensor = self.transform(img).unsqueeze(0).to(device)
+            
+            # Get prediction
+            with torch.no_grad():
+                output = self.model(input_tensor)
+                probabilities = torch.softmax(output, dim=1)
+                top_prob, top_class = torch.max(probabilities, 1)
+            
+            # Generate Grad-CAM heatmap
+            heatmap = self.grad_cam(input_tensor, top_class.item())
+            
+            # Store results
+            self.last_prediction = {
+                'class': CLASS_NAMES[top_class.item()],
+                'confidence': top_prob.item(),
+                'timestamp': current_time
+            }
+            self.last_heatmap = heatmap
+            
+            # Convert heatmap to RGB for overlay
+            heatmap_img = Image.fromarray((heatmap * 255).astype('uint8')).resize(img.size)
+            heatmap_rgb = np.array(heatmap_img.convert('RGB'))
+            
+            # Create overlay (50% opacity)
+            overlay = (0.5 * frame.to_ndarray(format="rgb24") + 0.5 * heatmap_rgb).astype('uint8')
+            
+            return overlay
+            
+        except Exception as e:
+            st.error(f"Error processing frame: {str(e)}")
+            return frame
 
-def export_as_pdf(diagnosis_data, image):
-    """Generate a PDF report"""
-    from fpdf import FPDF
-    from PIL import Image
+def display_performance_metrics(processing_time, model_size, confidence):
+    """Display performance metrics in a structured way"""
+    metrics = {
+        "Processing Time": f"{processing_time:.2f} ms",
+        "Model Size": f"{model_size:.2f} MB",
+        "Prediction Confidence": f"{confidence:.2f}%",
+        "Device": "GPU" if torch.cuda.is_available() else "CPU"
+    }
     
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
+    st.markdown("### ⚙️ Performance Metrics")
+    cols = st.columns(4)
+    for i, (name, value) in enumerate(metrics.items()):
+        cols[i % 4].metric(label=name, value=value)
     
-    # Title
-    pdf.cell(200, 10, txt="Plant Disease Diagnosis Report", ln=1, align="C")
-    pdf.ln(10)
-    
-    # Diagnosis information
-    pdf.set_font("Arial", size=10)
-    pdf.cell(200, 10, txt=f"Date: {diagnosis_data['date']}", ln=1)
-    if 'location' in diagnosis_data:
-        pdf.cell(200, 10, txt=f"Location: {diagnosis_data['location']}", ln=1)
-    pdf.cell(200, 10, txt=f"Predicted Disease: {diagnosis_data['disease']}", ln=1)
-    pdf.cell(200, 10, txt=f"Confidence: {diagnosis_data['confidence']:.2f}%", ln=1)
-    pdf.ln(10)
-    
-    # Remediation advice
-    pdf.set_font("Arial", 'B', size=10)
-    pdf.cell(200, 10, txt="Remediation Advice:", ln=1)
-    pdf.set_font("Arial", size=10)
-    pdf.multi_cell(0, 10, txt=REMEDIATION_ADVICE.get(diagnosis_data['disease'], {}).get('long', 'No specific advice available'))
-    
-    # Save image to temporary file
-    img_path = "temp_image.jpg"
-    image.save(img_path)
-    
-    # Add image to PDF
-    pdf.ln(10)
-    pdf.image(img_path, x=50, w=100)
-    
-    # Remove temporary image
-    if os.path.exists(img_path):
-        os.remove(img_path)
-    
-    return pdf.output(dest='S').encode('latin1')
-
-def init_session_state():
-    """Initialize session state variables"""
-    if 'diagnosis_history' not in st.session_state:
-        st.session_state.diagnosis_history = []
-    if 'language' not in st.session_state:
-        st.session_state.language = CONFIG["default_language"]
-    if 'gemini_questions' not in st.session_state:
-        st.session_state.gemini_questions = {}
+    # Additional visualizations
+    with st.expander("Detailed Performance Analysis"):
+        # Only plot numeric metrics
+        numeric_metrics = {k: v for k, v in metrics.items() if any(char.isdigit() for char in v)}
+        x = list(numeric_metrics.keys())
+        y = []
+        for v in numeric_metrics.values():
+            try:
+                y.append(float(v.split()[0]))
+            except Exception:
+                y.append(0)
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.bar(x, y)
+        ax.set_title("System Performance")
+        ax.set_ylabel("Value")
+        plt.xticks(rotation=45)
+        st.pyplot(fig)
 
 def main():
     st.set_page_config(
         layout="wide", 
-        page_title="Plant Disease Diagnosis", 
+        page_title="LeafXplain-Lite", 
         page_icon="🌿",
         initial_sidebar_state="expanded"
     )
-    
-    init_session_state()
     
     # custom CSS for dark mode compatibility
     st.markdown("""
@@ -451,6 +430,25 @@ def main():
         background-color: transparent;
     }
     
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        padding: 0 20px;
+        background-color: var(--background-color);
+        border-radius: 10px 10px 0 0;
+        border: 1px solid var(--border-color);
+        color: black;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background-color: #4caf50;
+        color: white !important;
+    }
+    
     /* Theme variables */
     :root {
         --background-color: white;
@@ -469,39 +467,22 @@ def main():
         .main {padding: 1rem;}
         .sidebar .sidebar-content {padding: 1rem;}
     }
-    
-    /* History items */
-    .history-item {
-        border-bottom: 1px solid var(--border-color);
-        padding: 0.5rem 0;
-    }
-    .history-item:last-child {
-        border-bottom: none;
-    }
     </style>
     """, unsafe_allow_html=True)
     
-    # Language selector in sidebar
-    with st.sidebar:
-        st.session_state.language = st.selectbox(
-            "Language",
-            options=list(CONFIG["languages"].keys()),
-            index=list(CONFIG["languages"].keys()).index(st.session_state.language)
-        )
-    
     # app header
-    st.markdown(f"""
+    st.markdown("""
     <div class="card">
-        <h1 style="margin-bottom: 0.5rem; color: var(--text-color) !important;">{t("app_title")}</h1>
-        <p style="color: var(--text-color); margin-bottom: 0;">Upload a plant image to detect diseases and visualize model attention</p>
+        <h1 style="margin-bottom: 0.5rem; color: var(--text-color) !important;">🌿 LeafXplain-Lite</h1>
+        <p style="color: var(--text-color); margin-bottom: 0;">Advanced light-weight plant disease detection with explainability, real-time analysis and expert advisory</p>
     </div>
     """, unsafe_allow_html=True)
     
-    # sidebar - Model upload and history
+    # sidebar - Model upload
     with st.sidebar:
-        st.markdown(f"""
+        st.markdown("""
         <div class="card">
-            <h3>1. {t("upload_model")}</h3>
+            <h3>1. Upload Model</h3>
             <p style="color: var(--text-color);">Please upload your trained model file (.pth)</p>
         </div>
         """, unsafe_allow_html=True)
@@ -509,38 +490,32 @@ def main():
         model_file = st.file_uploader(
             "Choose a model file", 
             type="pth",
-            label_visibility="collapsed"
+            label_visibility="collapsed",
+            key="model_uploader"
         )
         
-        # Diagnosis history
-        if st.session_state.diagnosis_history:
-            st.markdown(f"""
-            <div class="card">
-                <h3>{t("history")}</h3>
-                <div style="max-height: 300px; overflow-y: auto;">
-            """, unsafe_allow_html=True)
-            
-            for i, item in enumerate(reversed(st.session_state.diagnosis_history[-CONFIG["max_history"]:])):
-                with st.expander(f"{item['date']} - {item['disease']} ({item['confidence']:.1f}%)", expanded=False):
-                    st.image(item['image'], use_column_width=True)
-                    st.write(f"**{t('confidence')}:** {item['confidence']:.1f}%")
-                    if 'location' in item:
-                        st.write(f"**{t('location')}:** {item['location']}")
-                    if st.button(f"View details {i}", key=f"history_{i}"):
-                        st.session_state.current_diagnosis = item
-            
-            st.markdown("</div></div>", unsafe_allow_html=True)
+        st.markdown("""
+        <div class="card">
+            <h3>Detection Mode</h3>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        detection_mode = st.radio(
+            "Select input method:",
+            ["Upload Image", "Live Camera"],
+            label_visibility="collapsed"
+        )
         
         st.markdown("""
         <div class="card">
             <h3>About</h3>
-            <p style="color: var(--text-color);">This app uses deep learning to:</p>
+            <p style="color: var(--text-color);">This advanced app provides:</p>
             <ul style="color: var(--text-color);">
-                <li>Classify plant diseases</li>
-                <li>Visualize model attention</li>
-                <li>Explain predictions</li>
-                <li>Provide remediation advice</li>
-                <li>Offer expert consultation</li>
+                <li>Plant disease classification</li>
+                <li>Real-time camera detection</li>
+                <li>Model attention visualization</li>
+                <li>Expert advisory via Gemini</li>
+                <li>Detailed performance metrics</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -555,224 +530,178 @@ def main():
         model = load_model(model_path)
         
         if model is not None:
-            st.success(t("model_loaded"), icon="✅")
+            st.success("Model loaded successfully!", icon="✅")
             
-            # initialize Grad-CAM
+            # Calculate model size
+            model_size = os.path.getsize(model_path) / (1024 * 1024)  # in MB
+            
+            # Initialize Grad-CAM
             target_layer = model.features[-2]  # Layer before attention
             grad_cam = GradCAM(model, target_layer)
             
-            # image upload section
-            st.markdown(f"""
-            <div class="card">
-                <h2>2. {t("upload_image")}</h2>
-                <p style="color: var(--text-color);">Upload an image of a plant leaf for disease diagnosis</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
+            if detection_mode == "Upload Image":
+                # image upload section
+                st.markdown("""
+                <div class="card">
+                    <h2>2. Upload Plant Image</h2>
+                    <p style="color: var(--text-color);">Upload an image of a plant leaf for disease diagnosis</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
                 image_file = st.file_uploader(
                     "Choose an image...", 
                     type=["jpg", "jpeg", "png"],
-                    label_visibility="collapsed"
+                    label_visibility="collapsed",
+                    key="image_uploader"
                 )
-            
-            with col2:
-                # Optional location information
-                location = None
-                if st.checkbox(t("location")):
-                    if st.button(t("get_location")):
-                        try:
-                            # This would require browser geolocation permissions
-                            # In a real app, you'd use JavaScript to get this
-                            # For demo purposes, we'll simulate it
-                            lat, lon = 37.7749, -122.4194  # San Francisco coordinates
-                            location = get_location_name(lat, lon)
-                            st.success(f"Location detected: {location}")
-                        except:
-                            st.warning("Could not get current location")
+                
+                if image_file is not None:
+                    start_time = time.time()
+                    image = Image.open(image_file).convert('RGB')
                     
-                    st.write(t("enter_location"))
-                    manual_location = st.text_input("", label_visibility="collapsed")
-                    if manual_location:
-                        location = manual_location
-                
-                # Optional capture date
-                capture_date = st.date_input(t("capture_date"), 
-                                          value=datetime.date.today(),
-                                          help=t("capture_date_placeholder"))
-            
-            if image_file is not None:
-                image = Image.open(image_file).convert('RGB')
-                
-                # process image
-                input_tensor = preprocess_image(image)
-                
-                with torch.no_grad():
-                    output = model(input_tensor)
-                    probabilities = torch.softmax(output, dim=1)
-                    top_prob, top_class = torch.max(probabilities, 1)
-                
-                # generate Grad-CAM heatmap
-                heatmap = grad_cam(input_tensor, top_class.item())
-                
-                # Store current diagnosis
-                current_diagnosis = {
-                    'date': capture_date.strftime("%Y-%m-%d %H:%M"),
-                    'disease': CLASS_NAMES[top_class.item()],
-                    'confidence': top_prob.item()*100,
-                    'image': image,
-                    'probabilities': probabilities.squeeze().cpu().numpy().tolist()
-                }
-                
-                if location:
-                    current_diagnosis['location'] = location
-                
-                # Add to history if not already there
-                if not any(d['date'] == current_diagnosis['date'] and 
-                          d['disease'] == current_diagnosis['disease'] for d in st.session_state.diagnosis_history):
-                    st.session_state.diagnosis_history.append(current_diagnosis)
-                
-                # visualization section
-                st.markdown(f"""
-                <div class="card">
-                    <h2>{t("image_analysis")}</h2>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # combined visualization
-                fig = create_combined_figure(image, heatmap)
-                st.pyplot(fig, use_container_width=True)
-                
-                # results section
-                col1, col2 = st.columns([1, 2], gap="large")
-                
-                with col1:
-                    st.markdown(f"""
-                    <div class="card">
-                        <h3>🔍 {t("diagnosis_results")}</h3>
-                        <p style="font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--text-color);"><b>{t("predicted_disease")}:</b></p>
-                        <p style="font-size: 1.3rem; color: #4caf50; font-weight: bold; margin-top: 0;">{CLASS_NAMES[top_class.item()]}</p>
-                        <p style="font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--text-color);"><b>{t("confidence")}:</b></p>
-                        <p style="font-size: 1.3rem; color: #4caf50; font-weight: bold; margin-top: 0;">{top_prob.item()*100:.2f}%</p>
-                    </div>
+                    # process image
+                    input_tensor = preprocess_image(image)
                     
+                    with torch.no_grad():
+                        output = model(input_tensor)
+                        probabilities = torch.softmax(output, dim=1)
+                        top_prob, top_class = torch.max(probabilities, 1)
+                    
+                    # generate Grad-CAM heatmap
+                    heatmap = grad_cam(input_tensor, top_class.item())
+                    
+                    processing_time = (time.time() - start_time) * 1000  # in ms
+                    
+                    # visualization section
+                    st.markdown("""
                     <div class="card">
-                        <h3>💡 {t("remediation_advice")}</h3>
-                        <p style="color: var(--text-color);">{REMEDIATION_ADVICE.get(CLASS_NAMES[top_class.item()], {}).get('short', 'No specific advice available')}</p>
-                        <div style="margin-top: 1rem;">
-                            <button onclick="window.scrollTo(0, document.body.scrollHeight);" style="background-color: #4caf50; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">See detailed advice</button>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with col2:
-                    st.markdown(f"""
-                    <div class="card">
-                        <h3>📊 {t("top_predictions")}</h3>
+                        <h2>Comprehensive Analysis</h2>
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    probs = probabilities.squeeze().cpu().numpy()
-                    top_indices = np.argsort(probs)[-5:][::-1]
+                    # Use tabs for different views
+                    tab1, tab2, tab3 = st.tabs(["Diagnosis Overview", "Detailed Analysis", "Expert Advisory"])
                     
-                    for i in top_indices:
-                        label = CLASS_NAMES[i]
-                        percent = probs[i]*100
-                        st.markdown(f"<span style='color: var(--text-color);'><b>{label}</b></span>", unsafe_allow_html=True)
-                        st.progress(float(probs[i]), text=f"{percent:.2f}%")
-                
-                # interpretation section
-                st.markdown(f"""
-                <div class="card">
-                    <h3>🔎 {t("understanding_results")}</h3>
-                    <p style="color: var(--text-color);">The attention map shows which areas of the image most influenced the model's prediction:</p>
-                    <div style="display: flex; justify-content: center; margin: 1rem 0;">
-                        <div style="text-align: center; margin: 0 1rem;">
-                            <div style="width: 20px; height: 20px; background-color: #d62728; display: inline-block; border-radius: 3px;"></div>
-                            <p style="margin: 0.2rem 0; font-size: 0.9rem; color: var(--text-color);">{t("most_important")}</p>
-                        </div>
-                        <div style="text-align: center; margin: 0 1rem;">
-                            <div style="width: 20px; height: 20px; background-color: #ff7f0e; display: inline-block; border-radius: 3px;"></div>
-                            <p style="margin: 0.2rem 0; font-size: 0.9rem; color: var(--text-color);">{t("important")}</p>
-                        </div>
-                        <div style="text-align: center; margin: 0 1rem;">
-                            <div style="width: 20px; height: 20px; background-color: #1f77b4; display: inline-block; border-radius: 3px;"></div>
-                            <p style="margin: 0.2rem 0; font-size: 0.9rem; color: var(--text-color);">{t("less_important")}</p>
-                        </div>
-                    </div>
-                    <p style="color: var(--text-color);">The color intensity corresponds to the relative importance of each region in the diagnosis.</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Detailed information and Gemini integration
-                st.markdown(f"""
-                <div class="card">
-                    <h3>📚 {t("detailed_info")}</h3>
-                    <p style="color: var(--text-color);">{REMEDIATION_ADVICE.get(CLASS_NAMES[top_class.item()], {}).get('long', 'No detailed information available.')}</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Gemini API integration
-                if GEMINI_API_KEY != "your-api-key-here":
-                    st.markdown(f"""
-                    <div class="card">
-                        <h3>🤖 {t("ask_gemini")}</h3>
-                        <p style="color: var(--text-color);">{t("gemini_question")}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    question = st.text_input("", label_visibility="collapsed",
-                                            placeholder="Type your question here...")
-                    
-                    if question:
-                        # Store question in session state for this disease
-                        disease = CLASS_NAMES[top_class.item()]
-                        if disease not in st.session_state.gemini_questions:
-                            st.session_state.gemini_questions[disease] = []
-                        st.session_state.gemini_questions[disease].append(question)
+                    with tab1:
+                        # combined visualization
+                        fig = create_combined_figure(image, heatmap)
+                        st.pyplot(fig, use_container_width=True)
                         
-                        with st.spinner("Getting response from Gemini..."):
-                            gemini_response = get_gemini_response(question, disease)
-                        st.markdown(f"""
+                        # results section
+                        col1, col2 = st.columns([1, 2], gap="large")
+                        
+                        with col1:
+                            st.markdown(f"""
+                            <div class="card">
+                                <h3>🔍 Diagnosis Results</h3>
+                                <p style="font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--text-color);"><b>Predicted Disease:</b></p>
+                                <p style="font-size: 1.3rem; color: #4caf50; font-weight: bold; margin-top: 0;">{CLASS_NAMES[top_class.item()]}</p>
+                                <p style="font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--text-color);"><b>Confidence:</b></p>
+                                <p style="font-size: 1.3rem; color: #4caf50; font-weight: bold; margin-top: 0;">{top_prob.item()*100:.2f}%</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        
+                        with col2:
+                            st.markdown("""
+                            <div class="card">
+                                <h3>📊 Top Predictions</h3>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            probs = probabilities.squeeze().cpu().numpy()
+                            top_indices = np.argsort(probs)[-5:][::-1]
+                            
+                            for i in top_indices:
+                                label = CLASS_NAMES[i]
+                                percent = probs[i]*100
+                                st.markdown(f"<span style='color: var(--text-color);'><b>{label}</b></span>", unsafe_allow_html=True)
+                                st.progress(float(probs[i]), text=f"{percent:.2f}%")
+                        
+                        # Performance metrics
+                        display_performance_metrics(processing_time, model_size, top_prob.item()*100)
+                    
+                    with tab2:
+                        # Detailed analysis with multiple visualizations
+                        st.markdown("""
                         <div class="card">
-                            <h3>💬 {t("gemini_response")}</h3>
-                            <p style="color: var(--text-color);">{gemini_response}</p>
+                            <h3>📈 Detailed Analysis</h3>
                         </div>
                         """, unsafe_allow_html=True)
-                
-                # Export options
-                st.markdown(f"""
+                        
+                        detailed_fig = create_detailed_analysis_figure(image, heatmap, probabilities)
+                        st.pyplot(detailed_fig, use_container_width=True)
+                    
+                    with tab3:
+                        # Gemini advisory section
+                        st.markdown("""
+                        <div class="card">
+                            <h3>🛡️ Expert Advisory</h3>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        with st.spinner("Consulting with plant pathology expert..."):
+                            advice = get_gemini_advice(CLASS_NAMES[top_class.item()], top_prob.item()*100)
+                        
+                        st.markdown(advice, unsafe_allow_html=True)
+            
+            else:  # Live Camera mode
+                st.markdown("""
                 <div class="card">
-                    <h3>📤 {t("export_report")}</h3>
+                    <h2>🌿 Real-time Plant Disease Detection</h2>
+                    <p style="color: var(--text-color);">Use your camera for live plant disease analysis</p>
                 </div>
                 """, unsafe_allow_html=True)
-                col_pdf, col_csv = st.columns(2)
-                with col_pdf:
-                    if st.button(t("export_pdf")):
-                        pdf_bytes = export_as_pdf(current_diagnosis, image)
-                        b64_pdf = base64.b64encode(pdf_bytes).decode()
-                        href = f'<a href="data:application/pdf;base64,{b64_pdf}" download="diagnosis_report.pdf">Download PDF Report</a>'
-                        st.markdown(href, unsafe_allow_html=True)
-                with col_csv:
-                    if st.button(t("export_csv")):
-                        # Prepare CSV data
-                        csv_data = {
-                            "Date": [current_diagnosis['date']],
-                            "Disease": [current_diagnosis['disease']],
-                            "Confidence": [current_diagnosis['confidence']],
-                            "Location": [current_diagnosis.get('location', '')]
+                
+                st.warning("Live detection may have slightly reduced accuracy compared to static image analysis.", icon="⚠️")
+                
+                # Create two columns - one for camera, one for results
+                col1, col2 = st.columns([2, 1])
+                
+                with col1:
+                    ctx = webrtc_streamer(
+                        key="example",
+                        mode=WebRtcMode.SENDRECV,
+                        video_transformer_factory=lambda: VideoProcessor(model),
+                        async_transform=True,
+                        media_stream_constraints={
+                            "video": True,
+                            "audio": False
                         }
-                        df = pd.DataFrame(csv_data)
-                        csv_bytes = df.to_csv(index=False).encode()
-                        b64_csv = base64.b64encode(csv_bytes).decode()
-                        href = f'<a href="data:file/csv;base64,{b64_csv}" download="diagnosis_report.csv">Download CSV Report</a>'
-                        st.markdown(href, unsafe_allow_html=True)
-        else:
-            st.warning(t("no_model"))
+                    )
+                
+                with col2:
+                    if ctx.video_transformer:
+                        if hasattr(ctx.video_transformer, 'last_prediction'):
+                            prediction = ctx.video_transformer.last_prediction
+                            
+                            st.markdown("""
+                            <div class="card">
+                                <h3>🔍 Live Results</h3>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            st.markdown(f"""
+                            <p style="color: var(--text-color);"><b>Detected Disease:</b></p>
+                            <p style="font-size: 1.2rem; color: #4caf50; font-weight: bold;">{prediction['class']}</p>
+                            <p style="color: var(--text-color);"><b>Confidence:</b></p>
+                            <p style="font-size: 1.2rem; color: #4caf50; font-weight: bold;">{prediction['confidence']*100:.2f}%</p>
+                            <p style="color: var(--text-color);"><small>Last update: {time.strftime('%H:%M:%S', time.localtime(prediction['timestamp']))}</small></p>
+                            """, unsafe_allow_html=True)
+                            
+                            # Show advisory button
+                            if st.button("Get Expert Advice on This Detection"):
+                                with st.spinner("Consulting with plant pathology expert..."):
+                                    advice = get_gemini_advice(prediction['class'], prediction['confidence']*100)
+                                st.markdown(advice, unsafe_allow_html=True)
+                        
+                        # Performance metrics for live mode
+                        display_performance_metrics(0, model_size, ctx.video_transformer.last_prediction['confidence']*100 if hasattr(ctx.video_transformer, 'last_prediction') else 0)
+        
+        # clean up temporary model file
+        if os.path.exists(model_path):
+            os.remove(model_path)
     else:
-        st.info(t("no_model"))
+        st.info("Please upload a trained model (.pth file) to begin diagnosis", icon="ℹ️")
 
 if __name__ == "__main__":
     main()
