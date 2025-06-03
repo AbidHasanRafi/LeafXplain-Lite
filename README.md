@@ -1,42 +1,59 @@
 # 🌿 LeafXplain-Lite: Advanced Plant Disease Diagnosis
 
-![App Screenshot](https://via.placeholder.com/800x500.png?text=LeafXplain-Lite+Screenshot)
+![App Header](https://raw.githubusercontent.com/AbidHasanRafi/LeafXplain-Lite/main/assets/app_header.png)
 
-LeafXplain-Lite is an advanced plant disease diagnosis application that combines deep learning with expert advisory services. It provides real-time plant disease detection, detailed visual explanations, and professional treatment recommendations.
+**LeafXplain-Lite** is a smart, explainable AI-based web application for real-time plant disease detection. It provides intuitive visualizations, interpretable model outputs, and expert treatment suggestions through Gemini AI — all in one lightweight package.
 
-## Features
 
-### Image Analysis
-- Upload plant leaf images for instant disease detection
-- High-accuracy CNN model with attention mechanisms
-- Grad-CAM visualization showing model focus areas
+## Features at a Glance
 
-### Real-time Detection
-- Live camera feed processing
-- On-the-fly disease detection
-- Visual heatmap overlay
+### Image-Based Disease Analysis
+- Upload a leaf image to get a fast and accurate disease diagnosis.
+- Powered by a CNN model with attention mechanisms and Grad-CAM explanations.
+- Visualizes which part of the leaf influenced the model's decision.
 
-### Detailed Insights
-- Multi-view analysis with:
-  - Original image
-  - Attention heatmap
-  - Class activation map
-  - Prediction distribution
-  - Confidence metrics
 
-### Gemini Integration
-- Automatic expert advisory service
-- Detailed disease information including:
-  - Symptoms
-  - Treatment options
-  - Prevention strategies
-  - Safety precautions
+## App Walkthrough
 
-### Performance Metrics
-- Processing time tracking
-- Model size information
-- Confidence level indicators
-- Hardware utilization (GPU/CPU)
+### Diagnosis Overview – Instant Summary
+
+When an image is uploaded, the app provides a quick summary of predictions, including:
+- predicted disease
+- Grad-Cam Visuals
+- Predicted Result
+
+![Diagnosis Overview](https://raw.githubusercontent.com/AbidHasanRafi/LeafXplain-Lite/main/assets/diagonosis_overview.png)
+
+
+### Detailed Analysis – Interpretability & Insights
+
+This section breaks down the prediction with clear, scientific visualizations:
+- **Original Image**: What you uploaded.
+- **Attention Heatmap**: Shows what the model is focusing on.
+- **Class Activation Map (CAM)**: Highlights influential image regions.
+- **Prediction Distribution**: Probability scores for each class.
+
+![Detailed Analysis](https://raw.githubusercontent.com/AbidHasanRafi/LeafXplain-Lite/main/assets/detailed_analysis.png)
+
+
+### Expert Diagnosis – Gemini-Powered Advisory
+
+Once a prediction is made, LeafXplain-Lite fetches expert-level treatment guidelines using the Gemini AI API:
+- Disease description
+- Symptoms and severity
+- Recommended treatments
+- Preventive measures
+- Safety precautions
+
+![Diagnosis Result](https://raw.githubusercontent.com/AbidHasanRafi/LeafXplain-Lite/main/assets/diagonosis_result.png)
+
+
+## Live Detection from Camera
+
+- Switch to **Live Camera Mode** for real-time disease detection.
+- Get instant visual feedback with bounding boxes and overlays.
+- Gemini-generated advice is just one click away.
+
 
 ## Quick Start
 
@@ -48,49 +65,35 @@ LeafXplain-Lite is an advanced plant disease diagnosis application that combines
 
 ### Installation
 ```bash
-git clone https://github.com/yourusername/leafxplain-lite.git
-cd leafxplain-lite
+git clone https://github.com/AbidHasanRafi/LeafXplain-Lite.git
+cd LeafXplain-Lite
 pip install -r requirements.txt
-```
+````
 
 ### Running the App
+
 ```bash
 streamlit run app.py
 ```
 
-## Configuration
 
-1. **Gemini API Key**:
-   - Obtain a Google Gemini API key
-   - Add it to the app either:
-     - Directly in the code (for testing)
-     - Via Streamlit secrets (recommended for production)
+## Configuration Guide
 
-2. **Model Selection**:
-   - Use the provided model or upload your own trained `.pth` file
-   - The UI supports easy model switching
+### 1. Add Gemini API Key
 
-## Usage Guide
+* Get your API key from Google
+* Add to Streamlit secrets or directly in code (for testing)
 
-### Image Analysis Mode
-1. Upload a trained model file (.pth)
-2. Select "Upload Image" mode
-3. Choose a plant leaf image
-4. View results across three tabs:
-   - **Diagnosis Overview**: Quick results and top predictions
-   - **Detailed Analysis**: Comprehensive visualizations
-   - **Expert Advisory**: Gemini-generated recommendations
+### 2. Load or Upload Model
 
-### Live Camera Mode
-1. Upload a trained model file (.pth)
-2. Select "Live Camera" mode
-3. Allow camera access
-4. View real-time detection results
-5. Click "Get Expert Advice" for detailed recommendations
+* Use the default provided model or upload your own `.pth`
+* Model switching is available via dropdown
 
-## Technical Details
 
-### Model Architecture
+## Model Details
+
+### Architecture
+
 ```python
 class PlantDiseaseCNN(nn.Module):
     def __init__(self, num_classes):
@@ -99,7 +102,7 @@ class PlantDiseaseCNN(nn.Module):
             nn.Conv2d(3, 32, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
-            # ... additional layers ...
+            # Additional layers...
         )
         self.classifier = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
@@ -109,40 +112,28 @@ class PlantDiseaseCNN(nn.Module):
         )
 ```
 
-### Supported Diseases
-The model currently detects 20 common plant diseases including:
-- Apple Scab
-- Tomato Late Blight
-- Grape Black Rot
-- Corn Common Rust
-- Potato Early Blight
 
-## Performance
+## Supported Plant Diseases
 
-| Metric | Value |
-|--------|-------|
-| Average Inference Time | <50ms (GPU) |
-| Model Size | ~5MB |
-| Top-1 Accuracy | 92.3% |
-| Top-5 Accuracy | 98.7% |
+Supports detection of 20 common plant diseases, including:
 
-## Why Choose LeafXplain-Lite?
+* Apple Scab
+* Tomato Late Blight
+* Grape Black Rot
+* Corn Common Rust
+* Potato Early Blight
+  ... and more.
 
-- **Explainable AI**: Understand why the model makes its predictions
-- **Real-time Analysis**: Get instant results from live camera feed
-- **Expert Knowledge**: Gemini-powered professional advice
-- **Lightweight**: Runs efficiently on both CPU and GPU
-- **User-Friendly**: Intuitive interface with dark/light mode support
+## Why Use LeafXplain-Lite?
+
+* **Explainable AI** — Grad-CAM shows where the model focuses
+* **Real-time Detection** — From image uploads or live camera
+* **Gemini-Powered Expertise** — Instant, actionable advice
+* **Lightweight** — Small model size, fast on CPU or GPU
+* **Clean UI** — Tab-based view with dark/light mode support
 
 ## Contact
 
-Project Maintainer - [Your Name](mailto:your.email@example.com)
-
-Project Link: [https://github.com/yourusername/leafxplain-lite](https://github.com/yourusername/leafxplain-lite)
-
-## Acknowledgments
-
-- Google for the Gemini API
-- PyTorch team for the deep learning framework
-- Streamlit for the amazing app framework
-- All open-source contributors whose work made this possible
+**Project Maintainer** – [Md. Abid Hasan Rafi](mailto:ahr16.abidhasanrafi@gmail.com)
+**Project Contributor** – [Pankaj Bhowmik](mailto:pankaj@hstu.ac.bd)
+**GitHub Repository** – [https://github.com/abidhasanrafi/leafxplain-lite](https://github.com/abidhasanrafi/leafxplain-lite)
