@@ -95,6 +95,7 @@ streamlit run app.py
 ### Architecture
 
 ```python
+# model architecture
 class PlantDiseaseCNN(nn.Module):
     def __init__(self, num_classes):
         super(PlantDiseaseCNN, self).__init__()
@@ -102,7 +103,19 @@ class PlantDiseaseCNN(nn.Module):
             nn.Conv2d(3, 32, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
-            # Additional layers...
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(32, 32, kernel_size=3, padding=1, groups=32, bias=False),
+            nn.Conv2d(32, 64, kernel_size=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1, groups=64, bias=False),
+            nn.Conv2d(64, 128, kernel_size=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(128, 128, kernel_size=1),
+            nn.Sigmoid()
         )
         self.classifier = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
@@ -110,6 +123,12 @@ class PlantDiseaseCNN(nn.Module):
             nn.Dropout(0.5),
             nn.Linear(128, num_classes)
         )
+
+    def forward(self, x):
+        features = self.features[:-1](x)
+        attention = self.features[-1](features)
+        attended = features * attention
+        return self.classifier(attended)
 ```
 
 
@@ -130,7 +149,7 @@ Supports detection of 20 common plant diseases, including:
 * **Real-time Detection** — From image uploads or live camera
 * **Gemini-Powered Expertise** — Instant, actionable advice
 * **Lightweight** — Small model size, fast on CPU or GPU
-* **Clean UI** — Tab-based view with dark/light mode support
+* **Clean UI** — Tab-based view support
 
 ## Contact
 
