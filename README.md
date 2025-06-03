@@ -36,14 +36,14 @@ This section breaks down the prediction with clear, scientific visualizations:
 ![Detailed Analysis](https://raw.githubusercontent.com/AbidHasanRafi/LeafXplain-Lite/main/assets/detailed_analysis.png)
 
 
-### Expert Diagnosis – Gemini-Powered Advisory
+### Diagnosis Result
 
-Once a prediction is made, LeafXplain-Lite fetches expert-level treatment guidelines using the Gemini AI API:
-- Disease description
-- Symptoms and severity
-- Recommended treatments
-- Preventive measures
-- Safety precautions
+Once a prediction is made, LeafXplain-Lite provides the diagonosis results:
+- Predicted Disease
+- Disease Confidence
+- Top Predictions
+- Processing Time
+- Model Size
 
 ![Diagnosis Result](https://raw.githubusercontent.com/AbidHasanRafi/LeafXplain-Lite/main/assets/diagonosis_result.png)
 
@@ -134,6 +134,6 @@ Supports detection of 20 common plant diseases, including:
 
 ## Contact
 
-**Project Maintainer** – [Md. Abid Hasan Rafi](mailto:ahr16.abidhasanrafi@gmail.com)
-**Project Contributor** – [Pankaj Bhowmik](mailto:pankaj@hstu.ac.bd)
-**GitHub Repository** – [https://github.com/abidhasanrafi/leafxplain-lite](https://github.com/abidhasanrafi/leafxplain-lite)
+- **Project Maintainer** – [Md. Abid Hasan Rafi](mailto:ahr16.abidhasanrafi@gmail.com)
+- **Project Contributor** – [Pankaj Bhowmik](mailto:pankaj@hstu.ac.bd)
+- **GitHub Repository** – [https://github.com/abidhasanrafi/leafxplain-lite](https://github.com/abidhasanrafi/leafxplain-lite)
